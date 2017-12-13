@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/AUV.iml" filepath="$PROJECT_DIR$/AUV.iml" />
+      <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/appOpenCv/appOpenCv.iml" filepath="$PROJECT_DIR$/appOpenCv/appOpenCv.iml" />
+    </modules>
+  </component>
+</project>
