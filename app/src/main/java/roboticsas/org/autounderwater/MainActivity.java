@@ -2,6 +2,11 @@ package roboticsas.org.autounderwater;
 
 import android.content.Context;
 import android.content.res.AssetManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.hardware.Camera;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraManager;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -13,10 +18,12 @@ import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
+import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
@@ -26,6 +33,7 @@ import org.opencv.imgproc.Imgproc;
 import org.opencv.dnn.Net;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 //import org.opencv.dnn.Dnn;
 //
 //import java.io.BufferedInputStream;
@@ -49,10 +57,9 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
     private int _width = 0, _height = 0, _cols = 0, _rows = 0;
 
-    private int subWidth = 25, subHeight = 25;
-
-    private Mat mRgba, mMask, mCanny, ROIfront;
+    private Mat mRgba, mMask, mMix, ROIfront;
     private Rect roi;
+    private ArrayList<MatOfPoint> mContour = new ArrayList<>();
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
         @Override
@@ -79,6 +86,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.show_camera);
 
+
         mCameraBridgeViewBase = findViewById(R.id.javaCameraView);
         mCameraBridgeViewBase.setMaxFrameSize(500, 500);
         mCameraBridgeViewBase.setVisibility(SurfaceView.VISIBLE);
@@ -102,15 +110,16 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
     @Override
     public void onCameraViewStarted(int width, int height) {
-        mRgba = new Mat(height, width, CvType.CV_8UC4);
-        mMask = new Mat(height, width, CvType.CV_8UC4);
-        mCanny = new Mat(height, width, CvType.CV_8UC4);
+        mRgba       = new Mat(height, width, CvType.CV_8UC4);
+        mMask       = new Mat();
+        mMix        = new Mat();
 
         //Akibat dari di rotate camera menjadi potrait via coding..
         _width = height;
         _height = width;
         _cols = mRgba.rows();
         _rows = mRgba.cols();
+
     }
 
     @Override
@@ -122,35 +131,87 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     @Override
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
 
-        Point p1    = new Point(0, 0);
-        Point p2    = new Point(130, _width);
-        roi         = new Rect(p1, p2);
-        mRgba       = inputFrame.rgba();
-        ROIfront    = new Mat(inputFrame.gray(), roi);
-//        ROIfront = inputFrame.gray();
-        Imgproc.GaussianBlur(ROIfront, ROIfront, new Size(15,15), 0);
+        Point p1 = new Point((mRgba.cols() / 2) - 50, 50);
+        Point p2 = new Point((mRgba.cols() / 2) + 100, mRgba.rows() - 50);
 
-        int size_erosi = 15;
-        int size_derosi = 25;
+        mRgba = inputFrame.rgba();
+        roi = new Rect(p1, p2);
+        ROIfront = new Mat(inputFrame.gray(), roi);
+
+
+        Imgproc.GaussianBlur(ROIfront, ROIfront, new Size(15, 15), 0);
+
+        int size_erosi = 1;
+        int size_derosi = 1;
 
         Imgproc.erode(ROIfront, mMask,
                 Imgproc.getStructuringElement(Imgproc.MORPH_ERODE,
-                        new Size(2*size_erosi + 1, 2*size_erosi+1),
+                        new Size(2 * size_erosi + 1, 2 * size_erosi + 1),
                         new Point(0, 0)));
         Imgproc.dilate(mMask, mMask,
                 Imgproc.getStructuringElement(Imgproc.MORPH_ERODE,
-                        new Size(2*size_derosi + 1, 2*size_derosi+1),
+                        new Size(2 * size_derosi + 1, 2 * size_derosi + 1),
                         new Point(0, 0)));
 
-        Imgproc.Canny(mMask, mCanny, 12,6);
+        Imgproc.Canny(mMask, mMask, 12, 6);
 
         ArrayList<MatOfPoint> contours = new ArrayList<>();
-        Imgproc.findContours(mCanny, contours, new Mat(), Imgproc.RETR_TREE,Imgproc.CHAIN_APPROX_SIMPLE);
+        Mat _hierarchy = new Mat();
 
-        Imgproc.drawContours(mRgba, contours, -1, Scalar.all(255),1);
+        Imgproc.findContours(mMask, contours, _hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
 
-//        Imgproc.rectangle(mRgba, p1, p2, Scalar.all(255), 2);
+        ArrayList<MatOfPoint> _nuts = getNuts(contours);
+
+
+//        Imgproc.drawContours(mRgba, _nuts, -1, new Scalar(0, 255,0), 1, 8, new Mat(), 1, roi.tl());
+
+        Imgproc.rectangle(mRgba, p1, p2, Scalar.all(255), 2);
         return mRgba;
+    }
+
+    public ArrayList<MatOfPoint> getNuts(ArrayList<MatOfPoint> contours){
+        ArrayList<MatOfPoint> _nuts = null;
+
+        for(MatOfPoint _m : contours){
+            if(isNuts(_m)){
+                if(_nuts == null)
+                    _nuts = new ArrayList<>();
+                _nuts.add(_m);
+            }
+        }
+        return _nuts;
+    }
+
+    private Rect currentPosNuts;
+
+    public boolean isNuts(MatOfPoint _m){
+        Rect r = null;
+        MatOfPoint2f _m2f = new MatOfPoint2f();
+        MatOfPoint2f _approx2f = new MatOfPoint2f();
+        MatOfPoint _approxContour = new MatOfPoint();
+
+        _m.convertTo(_m2f, CvType.CV_32FC2);
+
+        Imgproc.approxPolyDP(_m2f, _approx2f, 26, true);
+
+        _approx2f.convertTo(_approxContour, CvType.CV_32S);
+
+        Mat m2 = new Mat(mRgba, roi);
+
+        if(_approxContour.size().height == 6) {
+            r = Imgproc.boundingRect(_approxContour);
+            if(currentPosNuts == null)
+                currentPosNuts = r;
+            if ((r.tl().x - currentPosNuts.tl().x) > 2 && (r.tl().y - currentPosNuts.tl().y) > 2) {
+                Scalar c = new Scalar(255, 0, 0);
+                Imgproc.rectangle(m2, r.tl(), r.br(), c, 1);
+                Imgproc.putText(m2, _approxContour.size().height + "", r.tl(), 1, 2, c);
+                Log.d(TAG, "Found Nuts");
+            }
+        }
+        if(r != null)
+            currentPosNuts = r;
+        return (r != null);
     }
 
     @Override
