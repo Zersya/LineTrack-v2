@@ -1,16 +1,8 @@
 package roboticsas.org.autounderwater;
 
-import android.content.Context;
-import android.content.res.AssetManager;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.hardware.Camera;
-import android.hardware.camera2.CameraDevice;
-import android.hardware.camera2.CameraManager;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.MenuItem;
 import android.view.SurfaceView;
 import android.view.WindowManager;
 
@@ -18,8 +10,6 @@ import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
-import org.opencv.android.Utils;
-import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
@@ -30,10 +20,8 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 //import org.opencv.dnn.Dnn;
 import org.opencv.imgproc.Imgproc;
-import org.opencv.dnn.Net;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 //import org.opencv.dnn.Dnn;
 //
 //import java.io.BufferedInputStream;
@@ -42,7 +30,7 @@ import java.util.Iterator;
 //import java.io.IOException;
 
 
-public class MainActivity extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2{
+public class Camera extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2{
 
     public static final String TAG = "OpenCV::Activity";
 
@@ -60,6 +48,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     private Mat mRgba, mMask, mMix, ROIfront;
     private Rect roi;
     private ArrayList<MatOfPoint> mContour = new ArrayList<>();
+    private DataCommunication _communication;
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
         @Override
@@ -84,8 +73,11 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        setContentView(R.layout.show_camera);
+        setContentView(R.layout.activity_camera);
 
+        _communication = new DataCommunication(getIntent(), this);
+
+        _communication.BTExecute();
 
         mCameraBridgeViewBase = findViewById(R.id.javaCameraView);
         mCameraBridgeViewBase.setMaxFrameSize(500, 500);
@@ -141,8 +133,8 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
         Imgproc.GaussianBlur(ROIfront, ROIfront, new Size(15, 15), 0);
 
-        int size_erosi = 1;
-        int size_derosi = 1;
+        int size_erosi = 5;
+        int size_derosi = 6;
 
         Imgproc.erode(ROIfront, mMask,
                 Imgproc.getStructuringElement(Imgproc.MORPH_ERODE,
@@ -163,14 +155,19 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         ArrayList<MatOfPoint> _nuts = getNuts(contours);
 
 
-//        Imgproc.drawContours(mRgba, _nuts, -1, new Scalar(0, 255,0), 1, 8, new Mat(), 1, roi.tl());
+//        Imgproc.drawContours(mRgba, _nuts, -1, new Scalar(0, 255,0),
+//                1, 8, new Mat(), 1, roi.tl());
 
         Imgproc.rectangle(mRgba, p1, p2, Scalar.all(255), 2);
+        if(_nuts!= null)
+            _communication.DataSend(_nuts.size()+"");
+
         return mRgba;
     }
 
     public ArrayList<MatOfPoint> getNuts(ArrayList<MatOfPoint> contours){
         ArrayList<MatOfPoint> _nuts = null;
+
 
         for(MatOfPoint _m : contours){
             if(isNuts(_m)){
@@ -192,23 +189,27 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
         _m.convertTo(_m2f, CvType.CV_32FC2);
 
-        Imgproc.approxPolyDP(_m2f, _approx2f, 26, true);
+        Imgproc.approxPolyDP(_m2f, _approx2f, 8, true);
 
         _approx2f.convertTo(_approxContour, CvType.CV_32S);
 
         Mat m2 = new Mat(mRgba, roi);
 
-        if(_approxContour.size().height == 6) {
+        if(_approxContour.size().height == 4) {
             r = Imgproc.boundingRect(_approxContour);
+
             if(currentPosNuts == null)
                 currentPosNuts = r;
-            if ((r.tl().x - currentPosNuts.tl().x) > 2 && (r.tl().y - currentPosNuts.tl().y) > 2) {
+
+            if ((r.tl().x - currentPosNuts.tl().x) > .12 && (r.tl().y - currentPosNuts.tl().y) > .12) {
                 Scalar c = new Scalar(255, 0, 0);
-                Imgproc.rectangle(m2, r.tl(), r.br(), c, 1);
-                Imgproc.putText(m2, _approxContour.size().height + "", r.tl(), 1, 2, c);
-                Log.d(TAG, "Found Nuts");
+                Point[] pArray = _m.toArray();
+                Imgproc.rectangle(m2, r.tl(), r.br(), c, 2);
+//                Imgproc.putText(m2, _approxContour.size().height + "", r.tl(), 1, 2, c);
+
             }
         }
+
         if(r != null)
             currentPosNuts = r;
         return (r != null);
