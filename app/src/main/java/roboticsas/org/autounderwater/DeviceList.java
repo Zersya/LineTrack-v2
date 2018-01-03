@@ -97,6 +97,7 @@ public class DeviceList extends AppCompatActivity {
             Intent i = new Intent(DeviceList.this, Camera.class);
 
             //Change the activity.
+            finish();
             i.putExtra(EXTRA_ADDRESS, address); //this will be received at ledControl (class) Activity
             startActivity(i);
         }
