@@ -12,6 +12,9 @@ import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
+import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.Point;
+import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.imgproc.Imgproc;
 
@@ -21,18 +24,21 @@ public class ColorBlobDetector {
     private Scalar mLowerBound = new Scalar(0);
     private Scalar mUpperBound = new Scalar(0);
     // Minimum contour area in percent for contours filtering
-    private static double mMinContourArea = 0.1;
+    private static double mMinContourArea = 0.4;
+    private int validArea  = 0;
     // Color radius for range checking in HSV color space
     private Scalar mColorRadius = new Scalar(25, 50, 50, 0);
     private Mat mSpectrum = new Mat();
     private List<MatOfPoint> mContours = new ArrayList<MatOfPoint>();
+    private Rect rectangle = new Rect();
+    private Point centerR = new Point();
 
     // Cache
-    Mat mPyrDownMat = new Mat();
-    Mat mHsvMat = new Mat();
-    Mat mMask = new Mat();
-    Mat mDilatedMask = new Mat();
-    Mat mHierarchy = new Mat();
+    Mat mPyrDownMat         = new Mat();
+    Mat mHsvMat             = new Mat();
+    Mat mMask               = new Mat();
+    Mat mDilatedMask        = new Mat();
+    Mat mHierarchy          = new Mat();
 
     public void setColorRadius(Scalar radius) {
         mColorRadius = radius;
@@ -87,28 +93,58 @@ public class ColorBlobDetector {
 
         // Find max contour area
         double maxArea = 0;
+        int contourIdx = 0;
         Iterator<MatOfPoint> each = contours.iterator();
         while (each.hasNext()) {
+            contourIdx++;
             MatOfPoint wrapper = each.next();
             double area = Imgproc.contourArea(wrapper);
-            if (area > maxArea)
+            if (area > maxArea) {
                 maxArea = area;
-        }
+                validArea = contourIdx;
 
-        // Filter contours by area and resize to fit the original image size
-        mContours.clear();
-        each = contours.iterator();
-        while (each.hasNext()) {
-            MatOfPoint contour = each.next();
-            if (Imgproc.contourArea(contour) > mMinContourArea * maxArea) {
-                Core.multiply(contour, new Scalar(4, 4), contour);
-                mContours.add(contour);
+                // Filter contours by area and resize to fit the original image size
+                MatOfPoint2f approxCurve = new MatOfPoint2f();
+                mContours.clear();
+                each = contours.iterator();
+                while (each.hasNext()) {
+                    MatOfPoint contour = each.next();
+
+                    if (Imgproc.contourArea(contour) > mMinContourArea * maxArea) {
+                        Core.multiply(contour, new Scalar(4, 4), contour);
+                        mContours.add(contour);
+
+                        //get Points
+                        MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
+                        double approxDistance = Imgproc.arcLength(contour2f, true) * 0.02;
+                        Imgproc.approxPolyDP(contour2f, approxCurve, approxDistance, true);
+                        MatOfPoint points = new MatOfPoint(approxCurve.toArray());
+
+                        //get Rect
+                        rectangle = Imgproc.boundingRect(points);
+                        //get center
+                        centerR = new Point(rectangle.x+rectangle.width*0.5, rectangle.y+rectangle.height*0.5);
+                    }
+                }
+
             }
         }
     }
 
+    public int getValidArea() {
+        return validArea;
+    }
+
     public List<MatOfPoint> getContours() {
         return mContours;
+    }
+
+    public Rect getRectangle() {
+        return rectangle;
+    }
+
+    public Point getCenterR() {
+        return centerR;
     }
 }
 

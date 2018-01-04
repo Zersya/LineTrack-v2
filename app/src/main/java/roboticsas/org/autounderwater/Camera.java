@@ -13,6 +13,11 @@ import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.ScrollView;
+import android.widget.Switch;
+import android.widget.TextView;
 
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
@@ -31,12 +36,18 @@ import org.opencv.dnn.Net;
 import org.opencv.imgproc.Imgproc;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Random;
 
 //
 public class Camera extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2{
 
     public static final String      TAG = "OpenCV::Activity";
+
+    CheckBox specT;
+    TextView dataHistory;
+    ScrollView scrollView;
 
     private CameraBridgeViewBase    mCameraBridgeViewBase;
     private Net                     net;
@@ -45,13 +56,13 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
     private Scalar                  mBlobColorHsv;
     private Size                    SPECTRUM_SIZE;
     private Scalar                  CONTOUR_COLOR;
-    private Mat                     mRgba, mMask, mMix, ROIfront, mSpectrum;
-    private Rect                    roi;
+    private Mat                     mRgba, mMask, mMix, RoILine, mSpectrum;
+    private Rect                    _roi;
     private boolean                 mIsColorSelected = false;
     private boolean                 mIsBTConnected = false;
     private ArrayList<MatOfPoint>   mContour = new ArrayList<>();
     private DataCommunication       _communication;
-
+    private Rect                    currentPosNuts;
     private int _width = 0, _height = 0, _cols = 0, _rows = 0;
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
@@ -80,25 +91,57 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         setContentView(R.layout.activity_camera);
         setSupportActionBar((Toolbar) findViewById(R.id.toolBar));
 
+        specT = findViewById(R.id.specT);
+        dataHistory = findViewById(R.id.dataHistory);
+        scrollView = findViewById(R.id.scrollView);
+
+        mCameraBridgeViewBase = findViewById(R.id.javaCameraView);
+//        mCameraBridgeViewBase.setMaxFrameSize(500, 500);
+        mCameraBridgeViewBase.setVisibility(SurfaceView.VISIBLE);
+        mCameraBridgeViewBase.setCvCameraViewListener(this);
+    }
+
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if(mCameraBridgeViewBase != null)
+            mCameraBridgeViewBase.disableView();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if(!OpenCVLoader.initDebug()){
+            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, mLoaderCallback);
+        }else{
+            Log.d(TAG, "OpenCV library found inside package. Using it!");
+            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+
         String str = getIntent().getStringExtra(DeviceList.EXTRA_ADDRESS);
         if(str != null && !str.isEmpty()) {
             mIsBTConnected = true;
             _communication = new DataCommunication(getIntent(), this);
 
             _communication.BTExecute();
-        }
+        }else mIsBTConnected = false;
 
-        mCameraBridgeViewBase = findViewById(R.id.javaCameraView);
-        mCameraBridgeViewBase.setMaxFrameSize(500, 500);
-        mCameraBridgeViewBase.setVisibility(SurfaceView.VISIBLE);
-        mCameraBridgeViewBase.setCvCameraViewListener(this);
 
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if(mCameraBridgeViewBase != null)
+            mCameraBridgeViewBase.disableView();
     }
 
     @Override
     public void onCameraViewStarted(int width, int height) {
         mRgba       = new Mat(height, width, CvType.CV_8UC4);
-        ROIfront    = new Mat(height, width, CvType.CV_8UC4);
+        RoILine    = new Mat(height, width, CvType.CV_8UC4);
         mMask       = new Mat();
         mMix        = new Mat();
 
@@ -108,6 +151,9 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         mBlobColorHsv = new Scalar(255);
         SPECTRUM_SIZE = new Size(200, 64);
         CONTOUR_COLOR = new Scalar(255,0,0,255);
+
+        //widget
+        specT.setEnabled(true);
 
         //Akibat dari di rotate camera menjadi potrait via coding..
         _width = height;
@@ -119,7 +165,7 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
     @Override
     public void onCameraViewStopped() {
         mRgba.release();
-        ROIfront.release();
+        RoILine.release();
     }
 
     @Override
@@ -129,41 +175,62 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         Point p2 = new Point((mRgba.cols() / 2) + 100, mRgba.rows() - 50);
 
         mRgba = inputFrame.rgba();
-        roi = new Rect(p1, p2);
-        ROIfront = new Mat(inputFrame.gray(), roi);
+        _roi = new Rect(p1, p2);
+        RoILine = new Mat(inputFrame.rgba(), _roi);
 
         //Color detection
         if (mIsColorSelected) {
-            mDetector.process(mRgba);
+            mDetector.process(RoILine);
             List<MatOfPoint> _contours = mDetector.getContours();
             Log.e(TAG, "Contours count: " + _contours.size());
-            Imgproc.drawContours(mRgba, _contours, -1, CONTOUR_COLOR);
+//            Imgproc.drawContours(RoILine, _contours, -1, CONTOUR_COLOR, 3);
 
-            Mat colorLabel = mRgba.submat(4, 68, 4, 68);
-            colorLabel.setTo(mBlobColorRgba);
+            if(specT.isChecked()) {
+                int row[] = {50, 100};
+                int col[] = {150, 210};
 
-            Mat spectrumLabel = mRgba.submat(4, 4 + mSpectrum.rows(), 70, 70 + mSpectrum.cols());
-            mSpectrum.copyTo(spectrumLabel);
+                Mat colorLabel = mRgba.submat(row[0], row[1]+10, col[0], col[1]);
+                colorLabel.setTo(mBlobColorRgba);
+
+                Mat spectrumLabel = mRgba.submat(row[0], row[0] + mSpectrum.rows(), col[1]+20, col[1]+20 + mSpectrum.cols());
+                mSpectrum.copyTo(spectrumLabel);
+            }
+
+            Imgproc.rectangle(RoILine, mDetector.getRectangle().tl(), mDetector.getRectangle().br(), new Scalar(255, 0, 255), 2);
+            Imgproc.line(RoILine, new Point(0, RoILine.height()/2),
+                    new Point(RoILine.width(), RoILine.height()/2), new Scalar(125, 255, 255), 3);
+            Imgproc.line(RoILine, new Point(RoILine.width()/2, RoILine.height()/2)
+                    , new Point(RoILine.width()/2, mDetector.getCenterR().y), new Scalar(125, 255, 255), 3);
+            Imgproc.circle(RoILine, new Point(RoILine.width()/2, mDetector.getCenterR().y), 3,
+                    new Scalar(125, 255, 255), 2);
+
+
+            if(mIsBTConnected = true) {
+               // _communication.DataSend(mDetector.getCenterR() + "");
+
+                scrollView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        scrollView.fullScroll(ScrollView.FOCUS_DOWN);
+                    }
+                });
+                tvAppend(mDetector.getCenterR().y+"");
+            }
         }
 
-//        if(_nuts!= null)
-//            _communication.DataSend(_nuts.size()+"");
+        Imgproc.rectangle(mRgba, p1, p2, Scalar.all(255), 2);
 
-//        Imgproc.drawContours(mRgba, _nuts, -1, new Scalar(0, 255,0),
-//                1, 8, new Mat(), 1, roi.tl());
-
-//        Imgproc.rectangle(mRgba, p1, p2, Scalar.all(255), 2);
         return mRgba;
     }
 
     public void nutsDetection(){
 
-        Imgproc.GaussianBlur(ROIfront, ROIfront, new Size(45, 45), 0);
+        Imgproc.GaussianBlur(RoILine, RoILine, new Size(45, 45), 0);
 
         int size_erosi = 15;
         int size_derosi = 25;
 
-        Imgproc.erode(ROIfront, mMask,
+        Imgproc.erode(RoILine, mMask,
                 Imgproc.getStructuringElement(Imgproc.MORPH_ERODE,
                         new Size(2 * size_erosi + 1, 2 * size_erosi + 1),
                         new Point(0, 0)));
@@ -197,8 +264,6 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         return _nuts;
     }
 
-    private Rect currentPosNuts;
-
     public boolean isNuts(MatOfPoint _m){
         Rect r = null;
         MatOfPoint2f _m2f = new MatOfPoint2f();
@@ -211,7 +276,7 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
 
         _approx2f.convertTo(_approxContour, CvType.CV_32S);
 
-        Mat m2 = new Mat(mRgba, roi);
+        Mat m2 = new Mat(mRgba, _roi);
 
         if(_approxContour.size().height == 4) {
             r = Imgproc.boundingRect(_approxContour);
@@ -234,33 +299,6 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         return (r != null);
     }
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-        if(mCameraBridgeViewBase != null)
-            mCameraBridgeViewBase.disableView();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        if(!OpenCVLoader.initDebug()){
-            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
-            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, mLoaderCallback);
-        }else{
-            Log.d(TAG, "OpenCV library found inside package. Using it!");
-            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if(mCameraBridgeViewBase != null)
-            mCameraBridgeViewBase.disableView();
-    }
-
-    @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         MenuInflater inflater = getMenuInflater();
         inflater.inflate(R.menu.option_menu, menu);
@@ -272,27 +310,32 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()){
             case R.id.konek_bt :
-                finish();
                 startActivity(new Intent(this, DeviceList.class));
                 break;
         }
         return super.onOptionsItemSelected(item);
     }
 
+    //untuk PoI touchListener
+    int _x;
+    int _y;
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        int cols = mRgba.cols();
-        int rows = mRgba.rows();
+        int cols = _rows;
+        int rows = _cols;
 
         int xOffset = (mCameraBridgeViewBase.getWidth() - cols) / 2;
         int yOffset = (mCameraBridgeViewBase.getHeight() - rows) / 2;
 
-        int x = (int)event.getX() - xOffset;
-        int y = (int)event.getY() - yOffset;
+        int x = (int) (map(event.getY(), 400, 1800, 0, mRgba.height()) - yOffset) + 785;
+        int y = (int) (map(event.getX(), 0, 1070, mRgba.width(), 0) - xOffset) - 90;
+        _x = x;
+        _y = y;
+        Log.i(TAG, "Touch image coordinates: (" + x + ", " + mRgba.cols() + ")");
 
-        Log.i(TAG, "Touch image coordinates: (" + x + ", " + y + ")");
 
-        if ((x < 0) || (y < 0) || (x > cols) || (y > rows)) return false;
+        if ((x < 0) || (y < 0)) return false;
+        if ((x > mRgba.cols()) || (y > mRgba.rows())) return false;
 
         Rect touchedRect = new Rect();
 
@@ -330,7 +373,6 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         return super.onTouchEvent(event);
     }
 
-
     private Scalar converScalarHsv2Rgba(Scalar hsvColor) {
         Mat pointMatRgba = new Mat();
         Mat pointMatHsv = new Mat(1, 1, CvType.CV_8UC3, hsvColor);
@@ -339,6 +381,19 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         return new Scalar(pointMatRgba.get(0, 0));
     }
 
+    private float map(float value, float low1, float high1, float low2, float high2){
+        return low2 + (value - low1) * (high2 - low2) / (high1 - low1);
+    }
+
+    private void tvAppend(final String data){
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+
+                dataHistory.append("\n" + data);
+            }
+        });
+    }
 
 //
 //    //Deep Neural Network things

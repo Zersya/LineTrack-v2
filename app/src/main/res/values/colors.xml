@@ -5,4 +5,5 @@
     <color name="colorAccent">#FF4081</color>
     <color name="colorBar">#c0392b</color>
     <color name="colorText">#ffffff</color>
+    <color name="transparentHalf">#64414141</color>
 </resources>
