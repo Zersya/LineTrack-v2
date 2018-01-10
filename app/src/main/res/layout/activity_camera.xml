@@ -27,6 +27,36 @@
             android:layout_alignParentRight="true"
             android:layout_marginRight="25dp"
             android:layout_marginTop="15dp"/>
+        <CheckBox
+            android:id="@+id/detT"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/detectionToogle"
+            android:textColor="@color/colorText"
+            android:layout_alignParentStart="true"
+            android:layout_marginTop="15dp"/>
+        <RadioGroup
+            android:id="@+id/radGroup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_below="@id/detT"
+            android:visibility="gone">
+            <RadioButton
+                android:id="@+id/linedetectMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/linedetectionToogle"
+                android:textColor="@color/colorText"
+                android:layout_marginTop="15dp"/>
+            <RadioButton
+                android:id="@+id/nutsdetectMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/nutsdetectionToogle"
+                android:textColor="@color/colorText"
+                android:layout_marginTop="15dp"/>
+        </RadioGroup>
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="100dp"

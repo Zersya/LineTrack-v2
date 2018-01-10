@@ -21,17 +21,18 @@ import org.opencv.imgproc.Imgproc;
 public class ColorBlobDetector {
 
     // Lower and Upper bounds for range checking in HSV color space
-    private Scalar mLowerBound = new Scalar(0);
-    private Scalar mUpperBound = new Scalar(0);
+    private Scalar mLowerBound              = new Scalar(0);
+    private Scalar mUpperBound              = new Scalar(0);
     // Minimum contour area in percent for contours filtering
-    private static double mMinContourArea = 0.4;
-    private int validArea  = 0;
+    private static double mMinContourArea   = 0.4;
+    private int validArea                   = 0;
     // Color radius for range checking in HSV color space
-    private Scalar mColorRadius = new Scalar(25, 50, 50, 0);
-    private Mat mSpectrum = new Mat();
-    private List<MatOfPoint> mContours = new ArrayList<MatOfPoint>();
-    private Rect rectangle = new Rect();
-    private Point centerR = new Point();
+    private Scalar mColorRadius             = new Scalar(25, 50, 50, 0);
+    private Mat mSpectrum                   = new Mat();
+    private List<MatOfPoint> mContours      = new ArrayList<MatOfPoint>();
+    private List<Point> listPoint           = new ArrayList<>();
+    private Rect rectangle                  = new Rect();
+    private Point centerR                   = new Point();
 
     // Cache
     Mat mPyrDownMat         = new Mat();
@@ -95,17 +96,18 @@ public class ColorBlobDetector {
         double maxArea = 0;
         int contourIdx = 0;
         Iterator<MatOfPoint> each = contours.iterator();
+
+        mContours.clear();
         while (each.hasNext()) {
             contourIdx++;
             MatOfPoint wrapper = each.next();
             double area = Imgproc.contourArea(wrapper);
-            if (area > maxArea) {
+            if (maxArea < area) {
                 maxArea = area;
                 validArea = contourIdx;
 
                 // Filter contours by area and resize to fit the original image size
                 MatOfPoint2f approxCurve = new MatOfPoint2f();
-                mContours.clear();
                 each = contours.iterator();
                 while (each.hasNext()) {
                     MatOfPoint contour = each.next();
@@ -126,7 +128,6 @@ public class ColorBlobDetector {
                         centerR = new Point(rectangle.x+rectangle.width*0.5, rectangle.y+rectangle.height*0.5);
                     }
                 }
-
             }
         }
     }
@@ -146,6 +147,8 @@ public class ColorBlobDetector {
     public Point getCenterR() {
         return centerR;
     }
+
+    public List<Point> getPoint() { return listPoint; }
 }
 
 

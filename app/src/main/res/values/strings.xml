@@ -2,5 +2,8 @@
     <string name="app_name">AutoUnderwater</string>
     <string name="konekBT">Konek Bluetooth</string>
     <string name="spectrumToogle">Toogle Spectrum</string>
+    <string name="detectionToogle">Toogle Detect Mode</string>
+    <string name="linedetectionToogle">Toogle Line Detect Mode</string>
+    <string name="nutsdetectionToogle">Toogle Nuts Detect Mode</string>
 
 </resources>

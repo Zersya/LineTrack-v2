@@ -1,10 +1,12 @@
 package roboticsas.org.autounderwater;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.support.v7.widget.Toolbar;
-import android.text.TextUtils;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -14,9 +16,9 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.CheckBox;
-import android.widget.EditText;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 
 import org.opencv.android.BaseLoaderCallback;
@@ -27,44 +29,47 @@ import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
-import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
-import org.opencv.dnn.Net;
 import org.opencv.imgproc.Imgproc;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Random;
 
 //
 public class Camera extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2{
 
     public static final String      TAG = "OpenCV::Activity";
 
-    CheckBox specT;
+    CheckBox specT, detT;
+    RadioGroup radGroup;
+    RadioButton lineDetMode, nutsDetMode;
     TextView dataHistory;
     ScrollView scrollView;
 
+    private static final String myPreferences = "myPrefs";
+    private static final String color_H[] = { "HueLine", "HueNuts" };
+    private static final String color_S[] = { "SaturationLine", "SaturationNuts" };
+    private static final String color_V[] = { "ValueLine", "ValueNuts" };
+    private static final String isSelected = "isSelected";
+
     private CameraBridgeViewBase    mCameraBridgeViewBase;
-    private Net                     net;
-    private ColorBlobDetector       mDetector;
+//    private Net                     net;
+    private ColorBlobDetector       mDetectorLine;
+    private ColorBlobDetector       mDetectorNuts;
     private Scalar                  mBlobColorRgba;
     private Scalar                  mBlobColorHsv;
     private Size                    SPECTRUM_SIZE;
-    private Scalar                  CONTOUR_COLOR;
-    private Mat                     mRgba, mMask, mMix, RoILine, mSpectrum;
-    private Rect                    _roi;
+//    private Scalar                  CONTOUR_COLOR;
+    private Mat                     mRgba, RoILine, RoINuts, mSpectrum;
     private boolean                 mIsColorSelected = false;
     private boolean                 mIsBTConnected = false;
-    private ArrayList<MatOfPoint>   mContour = new ArrayList<>();
     private DataCommunication       _communication;
-    private Rect                    currentPosNuts;
-    private int _width = 0, _height = 0, _cols = 0, _rows = 0;
-
+//    private Rect                    currentPosNuts;
+    private int  _cols = 0, _rows = 0, radioSel = 0;
+    
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
         @Override
         public void onManagerConnected(int status) {
@@ -91,9 +96,27 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         setContentView(R.layout.activity_camera);
         setSupportActionBar((Toolbar) findViewById(R.id.toolBar));
 
-        specT = findViewById(R.id.specT);
+        specT       = findViewById(R.id.specT);
+        detT        = findViewById(R.id.detT);
         dataHistory = findViewById(R.id.dataHistory);
-        scrollView = findViewById(R.id.scrollView);
+        scrollView  = findViewById(R.id.scrollView);
+        radGroup    = findViewById(R.id.radGroup);
+        lineDetMode = findViewById(R.id.linedetectMode);
+        nutsDetMode = findViewById(R.id.nutsdetectMode);
+
+        radGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(RadioGroup radioGroup, int i) {
+                switch (i){
+                    case R.id.linedetectMode :
+                        radioSel = 1;
+                        break;
+                    case R.id.nutsdetectMode :
+                        radioSel = 2;
+                        break;
+                }
+            }
+        });
 
         mCameraBridgeViewBase = findViewById(R.id.javaCameraView);
 //        mCameraBridgeViewBase.setMaxFrameSize(500, 500);
@@ -140,24 +163,40 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
 
     @Override
     public void onCameraViewStarted(int width, int height) {
-        mRgba       = new Mat(height, width, CvType.CV_8UC4);
-        RoILine    = new Mat(height, width, CvType.CV_8UC4);
-        mMask       = new Mat();
-        mMix        = new Mat();
+        mRgba           = new Mat(height, width, CvType.CV_8UC4);
+        RoILine         = new Mat(height, width, CvType.CV_8UC4);
+        RoINuts         = new Mat(height, width, CvType.CV_8UC4);
 
-        mDetector = new ColorBlobDetector();
-        mSpectrum = new Mat();
-        mBlobColorRgba = new Scalar(255);
-        mBlobColorHsv = new Scalar(255);
-        SPECTRUM_SIZE = new Size(200, 64);
-        CONTOUR_COLOR = new Scalar(255,0,0,255);
+        mDetectorLine   = new ColorBlobDetector();
+        mDetectorNuts   = new ColorBlobDetector();
+        mSpectrum       = new Mat();
+        mBlobColorRgba  = new Scalar(255);
+        mBlobColorHsv   = new Scalar(255);
+        SPECTRUM_SIZE   = new Size(200, 64);
+//        CONTOUR_COLOR = new Scalar(255,0,0,255);
 
         //widget
         specT.setEnabled(true);
 
-        //Akibat dari di rotate camera menjadi potrait via coding..
-        _width = height;
-        _height = width;
+
+        SharedPreferences sharedPreferences = getSharedPreferences(myPreferences, Context.MODE_PRIVATE);
+        mIsColorSelected = sharedPreferences.getBoolean(isSelected, false);
+
+        if(mIsColorSelected){
+            mBlobColorHsv = new Scalar(sharedPreferences.getFloat(color_H[0], 0),
+                    sharedPreferences.getFloat(color_S[0], 0),
+                    sharedPreferences.getFloat(color_V[0], 0));
+
+            mDetectorLine.setHsvColor(mBlobColorHsv);
+
+            mBlobColorHsv = new Scalar(sharedPreferences.getFloat(color_H[1], 0),
+                    sharedPreferences.getFloat(color_S[1], 0),
+                    sharedPreferences.getFloat(color_V[1], 0));
+
+            mDetectorNuts.setHsvColor(mBlobColorHsv);
+        }
+
+
         _cols = mRgba.rows();
         _rows = mRgba.cols();
     }
@@ -171,23 +210,37 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
     @Override
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
 
-        Point p1 = new Point((mRgba.cols() / 2) - 50, 50);
-        Point p2 = new Point((mRgba.cols() / 2) + 100, mRgba.rows() - 50);
+        Point point1[] = {
+                new Point(450, 50),
+                new Point(150, 50)
+        };
+        Point point2[] = {
+                new Point(450 + 150, mRgba.rows() - 50),
+                new Point(150 + 250, mRgba.rows() - 50)
+        };
 
-        mRgba = inputFrame.rgba();
-        _roi = new Rect(p1, p2);
-        RoILine = new Mat(inputFrame.rgba(), _roi);
+        Rect _roiLine   = new Rect(point1[0], point2[0]);
+        Rect _roiNuts   = new Rect(point1[1], point2[1]);
+        RoILine         = new Mat(inputFrame.rgba(), _roiLine);
+        RoINuts         = new Mat(inputFrame.rgba(), _roiNuts);
+        mRgba           = inputFrame.rgba();
 
         //Color detection
         if (mIsColorSelected) {
-            mDetector.process(RoILine);
-            List<MatOfPoint> _contours = mDetector.getContours();
-            Log.e(TAG, "Contours count: " + _contours.size());
-//            Imgproc.drawContours(RoILine, _contours, -1, CONTOUR_COLOR, 3);
+            mDetectorLine.process(RoILine);
+            List<MatOfPoint> _contoursLine = mDetectorLine.getContours();
+            Log.e(TAG, "Contours count: " + _contoursLine.size());
+//            Imgproc.drawContours(RoILine, _contoursLine, -1, CONTOUR_COLOR, 3);
+
+            mDetectorNuts.process(RoINuts);
+            List<MatOfPoint> _contoursNuts = mDetectorNuts.getContours();
+            Log.e(TAG, "Contours count: " + _contoursNuts.size());
+//            Imgproc.drawContours(RoILine, _contoursNuts, -1, CONTOUR_COLOR, 3);
+
 
             if(specT.isChecked()) {
-                int row[] = {50, 100};
-                int col[] = {150, 210};
+                int row[] = {(int) point1[0].y, (int) (point1[0].y+55)};
+                int col[] = {(int) (point2[0].x), (int) (point2[0].x+50)};
 
                 Mat colorLabel = mRgba.submat(row[0], row[1]+10, col[0], col[1]);
                 colorLabel.setTo(mBlobColorRgba);
@@ -196,17 +249,53 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
                 mSpectrum.copyTo(spectrumLabel);
             }
 
-            Imgproc.rectangle(RoILine, mDetector.getRectangle().tl(), mDetector.getRectangle().br(), new Scalar(255, 0, 255), 2);
-            Imgproc.line(RoILine, new Point(0, RoILine.height()/2),
-                    new Point(RoILine.width(), RoILine.height()/2), new Scalar(125, 255, 255), 3);
-            Imgproc.line(RoILine, new Point(RoILine.width()/2, RoILine.height()/2)
-                    , new Point(RoILine.width()/2, mDetector.getCenterR().y), new Scalar(125, 255, 255), 3);
-            Imgproc.circle(RoILine, new Point(RoILine.width()/2, mDetector.getCenterR().y), 3,
-                    new Scalar(125, 255, 255), 2);
+
+            //Mode digunakan untuk mengetahui dalam mode apakah robot/wahana sedang berjalan
+            //Mode 0    : menjadi tanda bahwa robot harus menjadtuhkan bawaan
+            //Mode 1    : menjadi tanda bahwa robot harus mengikuti garis
+            //Mode 2    : menjadi tanda bahwa robot harus mengambil bawaan
+
+            int mode;
+            
+            if(!_contoursLine.isEmpty()){
+                mode = 1;
+                Imgproc.rectangle(RoILine, mDetectorLine.getRectangle().tl(), mDetectorLine.getRectangle().br(), new Scalar(255, 0, 255), 2);
+                Imgproc.line(RoILine, new Point(0, RoILine.height()/2),
+                        new Point(RoILine.width(), RoILine.height()/2), new Scalar(125, 255, 255), 3);
+                Imgproc.line(RoILine, new Point(RoILine.width()/2, RoILine.height()/2)
+                        , new Point(RoILine.width()/2, mDetectorLine.getCenterR().y), new Scalar(125, 255, 255), 3);
+                Imgproc.circle(RoILine, new Point(RoILine.width()/2, mDetectorLine.getCenterR().y), 3,
+                        new Scalar(125, 255, 255), 2);
+
+            }else mode = 0;
+
+            if(!_contoursNuts.isEmpty()){
+                mode = 2;
+                Imgproc.rectangle(RoINuts, mDetectorNuts.getRectangle().tl(), mDetectorNuts.getRectangle().br(), new Scalar(255, 0, 255), 2);
+                Imgproc.line(RoINuts, new Point(0, RoINuts.height()/2),
+                        new Point(RoINuts.width(), RoINuts.height()/2), new Scalar(125, 255, 255), 3);
+                Imgproc.line(RoINuts, new Point(mDetectorNuts.getCenterR().x, RoINuts.height()/2)
+                        , mDetectorNuts.getCenterR(), new Scalar(125, 255, 255), 3);
+                Imgproc.circle(RoINuts, mDetectorNuts.getCenterR(), 3,
+                        new Scalar(125, 255, 255), 2);
+
+            }
 
 
-            if(mIsBTConnected = true) {
-               // _communication.DataSend(mDetector.getCenterR() + "");
+            if(mIsBTConnected) {
+                String data = "";
+                switch(mode){
+                    case 0 :
+                        data = "0:0:0#";
+                        break;
+                    case 1 :
+                        data = mDetectorLine.getCenterR().y + ":" + "0" + ":" + mode +"#";
+                        break;
+                    case 2 :
+                        data = mDetectorNuts.getCenterR().y + ":" + mDetectorNuts.getCenterR().x + ":" + mode +"#";
+                        break;
+                }
+                _communication.DataSend(data);
 
                 scrollView.post(new Runnable() {
                     @Override
@@ -214,90 +303,27 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
                         scrollView.fullScroll(ScrollView.FOCUS_DOWN);
                     }
                 });
-                tvAppend(mDetector.getCenterR().y+"");
+                tvAppend(data);
             }
         }
 
-        Imgproc.rectangle(mRgba, p1, p2, Scalar.all(255), 2);
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (detT.isChecked()) radGroup.setVisibility(View.VISIBLE);
+                else {
+                    radGroup.setVisibility(View.GONE);
+                    radioSel = 0;
+                }
+            }
+        });
+
+        Imgproc.rectangle(mRgba, point1[0], point2[0], Scalar.all(255), 2);
+        Imgproc.rectangle(mRgba, point1[1], point2[1], Scalar.all(255), 2);
 
         return mRgba;
     }
 
-    public void nutsDetection(){
-
-        Imgproc.GaussianBlur(RoILine, RoILine, new Size(45, 45), 0);
-
-        int size_erosi = 15;
-        int size_derosi = 25;
-
-        Imgproc.erode(RoILine, mMask,
-                Imgproc.getStructuringElement(Imgproc.MORPH_ERODE,
-                        new Size(2 * size_erosi + 1, 2 * size_erosi + 1),
-                        new Point(0, 0)));
-        Imgproc.dilate(mMask, mMask,
-                Imgproc.getStructuringElement(Imgproc.MORPH_DILATE,
-                        new Size(2 * size_derosi + 1, 2 * size_derosi + 1),
-                        new Point(0, 0)));
-
-        int ths = 30;
-        Imgproc.Canny(mMask, mMask, ths, ths/2);
-
-        ArrayList<MatOfPoint> contours = new ArrayList<>();
-        Mat _hierarchy = new Mat();
-
-        Imgproc.findContours(mMask, contours, _hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
-
-        ArrayList<MatOfPoint> _nuts = getNuts(contours);
-    }
-
-    public ArrayList<MatOfPoint> getNuts(ArrayList<MatOfPoint> contours){
-        ArrayList<MatOfPoint> _nuts = null;
-
-
-        for(MatOfPoint _m : contours){
-            if(isNuts(_m)){
-                if(_nuts == null)
-                    _nuts = new ArrayList<>();
-                _nuts.add(_m);
-            }
-        }
-        return _nuts;
-    }
-
-    public boolean isNuts(MatOfPoint _m){
-        Rect r = null;
-        MatOfPoint2f _m2f = new MatOfPoint2f();
-        MatOfPoint2f _approx2f = new MatOfPoint2f();
-        MatOfPoint _approxContour = new MatOfPoint();
-
-        _m.convertTo(_m2f, CvType.CV_32FC2);
-
-        Imgproc.approxPolyDP(_m2f, _approx2f, 8, true);
-
-        _approx2f.convertTo(_approxContour, CvType.CV_32S);
-
-        Mat m2 = new Mat(mRgba, _roi);
-
-        if(_approxContour.size().height == 4) {
-            r = Imgproc.boundingRect(_approxContour);
-
-            if(currentPosNuts == null)
-                currentPosNuts = r;
-
-            if ((r.tl().x - currentPosNuts.tl().x) > .05 && (r.br().y - currentPosNuts.br().y) > .05) {
-
-                Scalar c = new Scalar(255, 0, 0);
-                Point[] pArray = _m.toArray();
-                Imgproc.rectangle(m2, r.tl(), r.br(), c, 2);
-
-//                Imgproc.putText(m2, _approxContour.size().height + "", r.tl(), 1, 2, c);
-            }
-        }
-
-        if(r != null)
-            currentPosNuts = r;
-        return (r != null);
-    }
 
     public boolean onCreateOptionsMenu(Menu menu) {
         MenuInflater inflater = getMenuInflater();
@@ -316,9 +342,6 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         return super.onOptionsItemSelected(item);
     }
 
-    //untuk PoI touchListener
-    int _x;
-    int _y;
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         int cols = _rows;
@@ -329,9 +352,8 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
 
         int x = (int) (map(event.getY(), 400, 1800, 0, mRgba.height()) - yOffset) + 785;
         int y = (int) (map(event.getX(), 0, 1070, mRgba.width(), 0) - xOffset) - 90;
-        _x = x;
-        _y = y;
-        Log.i(TAG, "Touch image coordinates: (" + x + ", " + mRgba.cols() + ")");
+
+        Log.i(TAG, "Touch image coordinates: (" + x + ", " + y + ")");
 
 
         if ((x < 0) || (y < 0)) return false;
@@ -339,20 +361,19 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
 
         Rect touchedRect = new Rect();
 
-        touchedRect.x = (x>4) ? x-4 : 0;
-        touchedRect.y = (y>4) ? y-4 : 0;
+        touchedRect.x = (x > 4) ? x - 4 : 0;
+        touchedRect.y = (y > 4) ? y - 4 : 0;
 
-        touchedRect.width = (x+4 < cols) ? x + 4 - touchedRect.x : cols - touchedRect.x;
-        touchedRect.height = (y+4 < rows) ? y + 4 - touchedRect.y : rows - touchedRect.y;
+        touchedRect.width = (x + 4 < cols) ? x + 4 - touchedRect.x : cols - touchedRect.x;
+        touchedRect.height = (y + 4 < rows) ? y + 4 - touchedRect.y : rows - touchedRect.y;
 
         Mat touchedRegionRgba = mRgba.submat(touchedRect);
 
         Mat touchedRegionHsv = new Mat();
         Imgproc.cvtColor(touchedRegionRgba, touchedRegionHsv, Imgproc.COLOR_RGB2HSV_FULL);
-
         // Calculate average color of touched region
         mBlobColorHsv = Core.sumElems(touchedRegionHsv);
-        int pointCount = touchedRect.width*touchedRect.height;
+        int pointCount = touchedRect.width * touchedRect.height;
         for (int i = 0; i < mBlobColorHsv.val.length; i++)
             mBlobColorHsv.val[i] /= pointCount;
 
@@ -361,11 +382,33 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         Log.i(TAG, "Touched rgba color: (" + mBlobColorRgba.val[0] + ", " + mBlobColorRgba.val[1] +
                 ", " + mBlobColorRgba.val[2] + ", " + mBlobColorRgba.val[3] + ")");
 
-        mDetector.setHsvColor(mBlobColorHsv);
+        if(detT.isChecked()) {
+            SharedPreferences sharedPreferences = getSharedPreferences(myPreferences, Context.MODE_PRIVATE);
+            SharedPreferences.Editor editor = sharedPreferences.edit();
+            if(radioSel == 1) {
+                mDetectorLine.setHsvColor(mBlobColorHsv);
 
-        Imgproc.resize(mDetector.getSpectrum(), mSpectrum, SPECTRUM_SIZE);
+                editor.putFloat(color_H[0], (float) mBlobColorHsv.val[0]);
+                editor.putFloat(color_S[0], (float) mBlobColorHsv.val[1]);
+                editor.putFloat(color_V[0], (float) mBlobColorHsv.val[2]);
+                Imgproc.resize(mDetectorLine.getSpectrum(), mSpectrum, SPECTRUM_SIZE);
+            }
+            if(radioSel == 2){
+                mDetectorNuts.setHsvColor(mBlobColorHsv);
 
-        mIsColorSelected = true;
+                editor.putFloat(color_H[1], (float) mBlobColorHsv.val[0]);
+                editor.putFloat(color_S[1], (float) mBlobColorHsv.val[1]);
+                editor.putFloat(color_V[1], (float) mBlobColorHsv.val[2]);
+                Imgproc.resize(mDetectorNuts.getSpectrum(), mSpectrum, SPECTRUM_SIZE);
+            }
+
+            mIsColorSelected = true;
+
+            editor.putBoolean(isSelected, mIsColorSelected);
+            editor.apply();
+            editor.commit();
+
+        }
 
         touchedRegionRgba.release();
         touchedRegionHsv.release();
@@ -373,6 +416,7 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
         return super.onTouchEvent(event);
     }
 
+    @NonNull
     private Scalar converScalarHsv2Rgba(Scalar hsvColor) {
         Mat pointMatRgba = new Mat();
         Mat pointMatHsv = new Mat(1, 1, CvType.CV_8UC3, hsvColor);
@@ -391,9 +435,88 @@ public class Camera extends AppCompatActivity implements CameraBridgeViewBase.Cv
             public void run() {
 
                 dataHistory.append("\n" + data);
+                if(dataHistory.getText().toString().length() > 1000)
+                    dataHistory.setText("");
             }
         });
     }
+
+
+//    public void nutsDetection(Mat inputFrame){
+//
+//
+//        Mat gray = new Mat();
+//        Imgproc.cvtColor(inputFrame, gray, Imgproc.COLOR_RGBA2GRAY);
+//        Mat RoIGray = new Mat(gray, _roiNuts);
+//        Imgproc.GaussianBlur(RoIGray, RoIGray, new Size(15, 15), 0);
+//
+//        int size_erosi = 2;
+//        int size_derosi = 4;
+//
+//        Imgproc.erode(RoIGray, mMask,
+//                Imgproc.getStructuringElement(Imgproc.MORPH_ERODE,
+//                        new Size(2 * size_erosi + 1, 2 * size_erosi + 1),
+//                        new Point(0, 0)));
+//        Imgproc.dilate(mMask, mMask,
+//                Imgproc.getStructuringElement(Imgproc.MORPH_DILATE,
+//                        new Size(2 * size_derosi + 1, 2 * size_derosi + 1),
+//                        new Point(0, 0)));
+//
+//        int ths = 30;
+//        Imgproc.Canny(mMask, mMask, ths, ths/2);
+//
+//        ArrayList<MatOfPoint> contours = new ArrayList<>();
+//
+//        Imgproc.findContours(mMask, contours, new Mat(), Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
+//
+//        ArrayList<MatOfPoint> _nuts = getNuts(contours);
+//        Imgproc.drawContours(RoINuts, _nuts, -1, Scalar.all(255), 2);
+//
+//    }
+//
+//    public ArrayList<MatOfPoint> getNuts(ArrayList<MatOfPoint> contours){
+//        ArrayList<MatOfPoint> _nuts = null;
+//
+//        for(MatOfPoint _m : contours){
+//            if(isNuts(_m)){
+//                if(_nuts == null)
+//                    _nuts = new ArrayList<>();
+//                _nuts.add(_m);
+//            }
+//        }
+//        return _nuts;
+//    }
+//
+//    public boolean isNuts(MatOfPoint _m){
+//        Rect r = null;
+//        MatOfPoint2f _m2f = new MatOfPoint2f();
+//        MatOfPoint2f _approx2f = new MatOfPoint2f();
+//        MatOfPoint _approxContour = new MatOfPoint();
+//
+//        _m.convertTo(_m2f, CvType.CV_32FC2);
+//
+//        Imgproc.approxPolyDP(_m2f, _approx2f, 8, true);
+//
+//        _approx2f.convertTo(_approxContour, CvType.CV_32S);
+//
+//        if(_approxContour.size().height == 6) {
+//            r = Imgproc.boundingRect(_approxContour);
+//
+//            if(currentPosNuts == null)
+//                currentPosNuts = r;
+//
+////            if ((r.tl().x - currentPosNuts.tl().x) > .05 && (r.br().y - currentPosNuts.br().y) > .05) {
+//
+//            Scalar c = new Scalar(255, 0, 0);
+//            Point[] pArray = _m.toArray();
+//            Imgproc.rectangle(RoINuts, r.tl(), r.br(), c, 2);
+////            }
+//        }
+//
+//        if(r != null)
+//            currentPosNuts = r;
+//        return (r != null);
+//    }
 
 //
 //    //Deep Neural Network things
